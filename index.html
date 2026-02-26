@@ -1,25 +1,192 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <title>SilverSuite</title>
-    <style>
-      body{font-family:Arial;margin:40px}
-      .card{border:1px solid #ddd;padding:16px;border-radius:10px;max-width:520px}
-      input,button{padding:10px;margin:6px 0;width:100%}
-      button{cursor:pointer}
-    </style>
-  </head>
-  <body>
-    <h1>SilverSuite</h1>
-    <div class="card">
-      <h3>Login</h3>
-      <input placeholder="Email" />
-      <input placeholder="Password" type="password" />
-      <button>Login</button>
-      <p style="color:#666;font-size:12px;margin-top:10px">
-        Next: we’ll connect this to Supabase (real login + buildings + residents).
-      </p>
+<head>
+  <title>SilverSuite</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: Arial; margin: 40px; }
+    input, button, select { padding: 10px; margin: 6px 0; width: 100%; }
+    button { cursor: pointer; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 10px; max-width: 520px; }
+    .row { display:flex; gap:10px; }
+    .row > * { width:100%; }
+    .small { color:#666; font-size:12px; }
+    .list .item { border:1px solid #eee; padding:10px; border-radius:10px; margin-top:8px; }
+  </style>
+</head>
+<body>
+
+<h1>SilverSuite</h1>
+
+<div id="login" class="card">
+  <h3>Login</h3>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+  <p class="small">No account yet? Create one below.</p>
+  <button onclick="signup()">Create Account</button>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="card">
+    <div class="row">
+      <button onclick="logout()">Logout</button>
+      <button onclick="loadBuildings()">Refresh</button>
     </div>
-  </body>
+    <p class="small">Logged in as: <span id="who"></span></p>
+  </div>
+
+  <div class="card">
+    <h3>Create Building</h3>
+    <input id="buildingName" placeholder="Building Name">
+    <input id="buildingAddress" placeholder="Address (optional)">
+    <button onclick="createBuilding()">Add Building</button>
+  </div>
+
+  <div class="card">
+    <h3>Select Building</h3>
+    <select id="buildingSelect" onchange="loadResidents()"></select>
+  </div>
+
+  <div class="card">
+    <h3>Add Resident</h3>
+    <div class="row">
+      <input id="residentName" placeholder="Full Name">
+      <input id="residentUnit" placeholder="Unit">
+    </div>
+    <button onclick="addResident()">Add Resident</button>
+  </div>
+
+  <div class="card list">
+    <h3>Residents</h3>
+    <div id="residentsList"></div>
+  </div>
+</div>
+
+<script>
+/*** STEP A: PUT YOUR SUPABASE VALUES HERE ***/
+const supabaseUrl = "PASTE_YOUR_PROJECT_URL_HERE";
+const supabaseKey = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
+const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+function showApp(userEmail){
+  document.getElementById("login").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  document.getElementById("who").textContent = userEmail;
+}
+
+async function signup() {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const { error } = await supabase.auth.signUp({ email, password });
+  if (error) return alert(error.message);
+  alert("Account created! Now login.");
+}
+
+async function login() {
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) return alert(error.message);
+  await checkUser();
+}
+
+async function logout() {
+  await supabase.auth.signOut();
+  location.reload();
+}
+
+async function checkUser() {
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user;
+  if (user) {
+    showApp(user.email);
+    await loadBuildings();
+  }
+}
+
+async function createBuilding() {
+  const name = document.getElementById("buildingName").value.trim();
+  const address = document.getElementById("buildingAddress").value.trim();
+  if (!name) return alert("Building name required");
+
+  const { error } = await supabase.from("buildings").insert({ name, address: address || null });
+  if (error) return alert(error.message);
+
+  document.getElementById("buildingName").value = "";
+  document.getElementById("buildingAddress").value = "";
+  await loadBuildings();
+}
+
+async function loadBuildings() {
+  const { data, error } = await supabase.from("buildings").select("*").order("created_at", { ascending: false });
+  if (error) return alert(error.message);
+
+  const sel = document.getElementById("buildingSelect");
+  sel.innerHTML = "";
+  (data || []).forEach(b => {
+    const opt = document.createElement("option");
+    opt.value = b.id;
+    opt.textContent = `${b.name}${b.address ? " — " + b.address : ""}`;
+    sel.appendChild(opt);
+  });
+
+  await loadResidents();
+}
+
+async function addResident() {
+  const buildingId = document.getElementById("buildingSelect").value;
+  if (!buildingId) return alert("Create/select a building first");
+
+  const full_name = document.getElementById("residentName").value.trim();
+  const unit = document.getElementById("residentUnit").value.trim();
+  if (!full_name) return alert("Resident name required");
+
+  const { error } = await supabase.from("residents").insert({
+    building_id: buildingId,
+    full_name,
+    unit: unit || null
+  });
+  if (error) return alert(error.message);
+
+  document.getElementById("residentName").value = "";
+  document.getElementById("residentUnit").value = "";
+  await loadResidents();
+}
+
+async function loadResidents() {
+  const buildingId = document.getElementById("buildingSelect").value;
+  const list = document.getElementById("residentsList");
+  list.innerHTML = "";
+
+  if (!buildingId) {
+    list.innerHTML = `<div class="small">No building selected yet.</div>`;
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from("residents")
+    .select("*")
+    .eq("building_id", buildingId)
+    .order("created_at", { ascending: false });
+
+  if (error) return alert(error.message);
+
+  if (!data?.length) {
+    list.innerHTML = `<div class="small">No residents yet.</div>`;
+    return;
+  }
+
+  data.forEach(r => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML = `<b>${r.full_name}</b>${r.unit ? " — Unit " + r.unit : ""}`;
+    list.appendChild(div);
+  });
+}
+
+checkUser();
+</script>
+
+</body>
 </html>
